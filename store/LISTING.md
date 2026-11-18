@@ -99,9 +99,12 @@ No, I am not using remote code. All JavaScript is packaged in the extension.
 
 ### Data usage
 
-Tick nothing in "What user data do you plan to collect" — the extension does not collect or transmit user data to the developer.
-
-The server credentials the user enters are stored locally and sent only to the user's own VPN server for authentication, which is the extension's single purpose.
+"What user data do you plan to collect": tick only **Authentication information**. Nothing goes
+to the developer, but the extension handles the username/password the user enters and sends them
+off the device to the user's own VPN server (Basic proxy auth) — Google counts that as handling
+authentication data, and under-declaring is a common rejection reason. Everything else stays
+unticked: browsing traffic is carried by Chrome's own proxy stack to the user's server, the
+extension does not read or record it.
 
 Certifications — tick all three:
 - I do not sell or transfer user data to third parties, outside of the approved use cases
