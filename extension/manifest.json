@@ -21,7 +21,7 @@
     "webRequestAuthProvider"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://connectivitycheck.gstatic.com/*"
   ],
   "background": {
     "service_worker": "sw.js"

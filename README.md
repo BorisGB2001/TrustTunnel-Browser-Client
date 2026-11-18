@@ -11,7 +11,8 @@ A Chrome extension: browser-only VPN client for [TrustTunnel](https://github.com
 TrustTunnel is HTTP `CONNECT` over TLS with HTTP Basic authentication — exactly what Chrome speaks to an **HTTPS proxy**. No native helper is needed.
 
 - The extension compiles your routing rules into a PAC script (`HTTPS host:port`) and applies it with `chrome.proxy.settings`.
-- Chrome sends `CONNECT` without credentials, the server answers `407 Proxy-Authenticate: Basic`, and the extension supplies the username and password in `webRequest.onAuthRequired`.
+- Chrome sends `CONNECT` without credentials, the server answers `407 Proxy-Authenticate: Basic`, and the extension supplies the username and password in `webRequest.onAuthRequired` for its own connectivity check; Chrome then reuses them for every page. Until that first check succeeds, pages are held back (or go direct with the kill switch off), so no password prompt appears.
+- The extension has **no access to websites**: its only host permission is `connectivitycheck.gstatic.com` for the health check.
 - A connectivity check through the tunnel runs every 30 seconds.
 
 For setups a browser cannot handle (HTTP/3-only servers, anti-DPI, `client_random` rules) there is a second mode: Chrome uses the local SOCKS5 listener of the official [`trusttunnel_client`](https://github.com/TrustTunnel/TrustTunnelClient).

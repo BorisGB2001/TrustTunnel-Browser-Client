@@ -37,13 +37,18 @@ let settings = { ...DEFAULTS };
 let rt = { status: "off", error: null, latency: null, checkedAt: null, since: null };
 let healthNonce = null; // marks our own health-check request
 let authFails = 0;
+// Chrome: "proxy|user" whose credentials Chrome already holds in its auth cache this session.
+// The extension has no host permission for websites, so it cannot answer a 407 for a page —
+// only for its own health probe. Until the probe has authenticated, pages are held back.
+let warmKey = null;
 
 const ready = (async () => {
   const stored = await browser.storage.local.get(Object.keys(DEFAULTS));
   settings = { ...DEFAULTS, ...stored };
   try {
-    const s = await browser.storage.session.get("rt");
+    const s = await browser.storage.session.get(["rt", "warmKey"]);
     if (s.rt) rt = { ...rt, ...s.rt };
+    warmKey = s.warmKey || null;
   } catch (_) {}
   updateBadge();
   if (IS_CHROME) await applyChromeProxy();
@@ -164,12 +169,25 @@ function pacProxyFor(p) {
   return `HTTPS ${p.hostname}:${Number(p.port) || 443}`;
 }
 
+const keyFor = (p) => (p ? pacProxyFor(p) + "|" + (p.kind === "socks" ? "" : p.username) : null);
+
+async function setWarm(key) {
+  if (key === warmKey) return;
+  warmKey = key;
+  try {
+    await browser.storage.session.set({ warmKey: key });
+  } catch (_) {}
+  await applyChromeProxy();
+}
+
 function buildPac() {
   const p = currentProfile();
   const cfg = {
     proxy: p ? pacProxyFor(p) : "PROXY 127.0.0.1:9", // nowhere: kill switch without a server
     server: p && p.kind !== "socks" ? p.hostname : null,
     health: HEALTH_HOST,
+    // Credentials not confirmed yet (no SOCKS auth in Chrome, so SOCKS never waits).
+    hold: !!p && p.kind !== "socks" && keyFor(p) !== warmKey,
     killSwitch: !!settings.killSwitch,
     rules: {
       mode: settings.mode,
@@ -186,6 +204,7 @@ function FindProxyForURL(url, host) {
   if (host === CFG.health) return CFG.proxy;
   if (CFG.server && host === CFG.server) return "DIRECT";
   if (!TTRules.shouldTunnel(host, CFG.rules)) return "DIRECT";
+  if (CFG.hold) return CFG.killSwitch ? "PROXY 127.0.0.1:9" : "DIRECT";
   return CFG.killSwitch ? CFG.proxy : CFG.proxy + "; DIRECT";
 }`);
 }
@@ -254,6 +273,7 @@ async function onAuth(details) {
     rejected = ++authFails > 3;
   }
   if (p.kind === "socks" || rejected) {
+    if (IS_CHROME) await setWarm(null);
     await setRuntime({ status: "error", error: t("errAuth407") });
     return { cancel: true };
   }
@@ -339,11 +359,14 @@ async function healthCheck({ quiet = false } = {}) {
     });
     // Chrome hands the proxy's 407 to fetch when the auth challenge is cancelled.
     if (r.status === 407) {
+      if (IS_CHROME) await setWarm(null);
       await setRuntime({ status: "error", error: t("errAuth407"), latency: null, since: null });
       return;
     }
     if (r.status >= 500) throw new Error(t("errHealthHttp", r.status));
     authFails = 0;
+    // The probe got through, so Chrome now holds the proxy credentials: let pages through.
+    if (IS_CHROME) await setWarm(keyFor(p));
     await setRuntime({
       status: "on",
       error: null,
@@ -438,6 +461,8 @@ async function saveProfile({ profile }) {
   const list = [...settings.profiles];
   const idx = profile.id ? list.findIndex((x) => x.id === profile.id) : -1;
   const p = cleanProfile(profile, idx >= 0 ? list[idx] : {});
+  // Chrome: a new password is not in Chrome's auth cache yet — hold pages until the probe passes.
+  if (IS_CHROME && idx >= 0 && p.id === settings.profileId && p.password !== list[idx].password) await setWarm(null);
   if (idx >= 0) list[idx] = p;
   else {
     p.id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

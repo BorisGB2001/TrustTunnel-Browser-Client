@@ -11,7 +11,8 @@
 TrustTunnel — это HTTP `CONNECT` поверх TLS с Basic-авторизацией, то есть обычный **HTTPS-прокси** для Chrome. Помощник на компьютере не нужен.
 
 - Расширение превращает правила маршрутизации в PAC-скрипт (`HTTPS host:port`) и включает его через `chrome.proxy.settings`.
-- Chrome шлёт `CONNECT` без пароля, сервер отвечает `407`, расширение подставляет логин и пароль в `webRequest.onAuthRequired`.
+- Chrome шлёт `CONNECT` без пароля, сервер отвечает `407`, расширение подставляет логин и пароль в `webRequest.onAuthRequired` для своей проверки связи, дальше Chrome сам использует их для всех страниц.
+- У расширения **нет доступа к сайтам**: единственное разрешение на хост — `connectivitycheck.gstatic.com` для проверки связи.
 - Каждые 30 секунд — проверка связи через туннель.
 
 Для того, что браузер сам не умеет (сервер только с HTTP/3, anti-DPI, правила `client_random`), есть режим SOCKS5 через официальный [`trusttunnel_client`](https://github.com/TrustTunnel/TrustTunnelClient).

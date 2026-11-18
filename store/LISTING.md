@@ -73,13 +73,13 @@ Browser-only VPN client: routes Chrome's traffic through the user's own TrustTun
 Core function. The extension applies a PAC script with chrome.proxy.settings so that Chrome sends web traffic through the TrustTunnel server the user configured (HTTPS proxy), and clears it when the VPN is turned off.
 
 **webRequest**
-Used to read the network error code of the extension's own connectivity-check request (e.g. certificate not trusted, connection refused) to show the user a clear reason why the VPN does not connect. No page content is read or modified.
+Used only for the extension's own connectivity-check request to connectivitycheck.gstatic.com: to read its network error code (e.g. certificate not trusted, connection refused) and show the user a clear reason why the VPN does not connect. The extension has no access to websites; no page content is read or modified.
 
 **webRequestAuthProvider**
-TrustTunnel servers require HTTP Basic proxy authentication. Chrome cannot preset proxy credentials, so the extension answers the server's 407 challenge in webRequest.onAuthRequired with the username and password the user entered. It only responds to proxy challenges from the configured server.
+TrustTunnel servers require HTTP Basic proxy authentication. Chrome cannot preset proxy credentials, so the extension answers the server's 407 challenge for its own connectivity-check request with the username and password the user entered for that server; Chrome then reuses them for the proxy. It only responds to proxy challenges from the server the user configured.
 
-**Host permission (<all_urls>)**
-Required for the proxy authentication handler and error reporting above: the server's 407 challenge can arrive for a request to any website the user opens through the VPN. The extension does not inject scripts or read or modify page content.
+**Host permission (https://connectivitycheck.gstatic.com/*)**
+The only host the extension has access to. Every 30 seconds while the VPN is on it requests https://connectivitycheck.gstatic.com/generate_204 through the user's server to check that the tunnel works, measure latency and authenticate to the proxy. No access to any website; no content scripts.
 
 **storage**
 Stores the user's server profiles (hostname, port, username, password, optional certificate) and settings (routing mode, site lists, kill switch) locally in chrome.storage.local, and the current connection status in chrome.storage.session.
