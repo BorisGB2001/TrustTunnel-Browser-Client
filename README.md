@@ -58,11 +58,19 @@ Then add a server in the extension with the **Via local trusttunnel_client (SOCK
 ## Development
 
 ```
-extension/            the extension (Manifest V3, service worker)
-scripts/build-zip.sh  pack extension/ into dist/trusttunnel-chrome-<version>.zip
+extension/                     the extension (Manifest V3, service worker) — edit here
+scripts/build-zip.sh           pack extension/ into dist/trusttunnel-chrome-<version>.zip
+scripts/test-config.js         self-test of the tt:// and TOML parsers (node scripts/test-config.js)
+scripts/e2e.js                 end-to-end test against a local fake TrustTunnel server
+scripts/e2e-live.js            end-to-end test against a live server (key read from a file, never stored)
+scripts/store-screenshots.js   Chrome Web Store screenshots (store/screenshots/)
+store/                         store listing texts and screenshots
 ```
 
-The Firefox version lives in [TrustTunnel-FireFox](https://github.com/BorisGB2001/TrustTunnel-FireFox); both share the same core code.
+The browser tests need `puppeteer-core` (`NODE_PATH=<dir>/node_modules`) and a Chromium that still
+accepts `--load-extension` (Chromium, Chrome for Testing; branded Google Chrome 137+ does not).
+
+The Firefox version is a separate project: [TrustTunnel-FireFox](https://github.com/BorisGB2001/TrustTunnel-FireFox).
 
 ## Privacy
 

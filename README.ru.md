@@ -29,7 +29,15 @@ TrustTunnel — это HTTP `CONNECT` поверх TLS с Basic-авториза
 - **Из исходников:** `chrome://extensions` → «Режим разработчика» → «Загрузить распакованное» → папка `extension/`.
 - **SOCKS5:** в `trusttunnel_client.toml` секция `[listener.socks]` с `address = "127.0.0.1:1080"` **без логина и пароля** (Chrome не умеет авторизацию SOCKS).
 
-Версия для Firefox — [TrustTunnel-FireFox](https://github.com/BorisGB2001/TrustTunnel-FireFox).
+Версия для Firefox — отдельный проект [TrustTunnel-FireFox](https://github.com/BorisGB2001/TrustTunnel-FireFox).
+
+## Разработка
+
+Код правится прямо в `extension/`. Скрипты в `scripts/`: `build-zip.sh` (архив для магазина),
+`test-config.js` (разбор tt:// и TOML), `e2e.js` (тест с локальным фейковым сервером),
+`e2e-live.js` (тест с живым сервером, ключ читается из файла и не сохраняется),
+`store-screenshots.js` (скриншоты для магазина). Браузерным тестам нужен `puppeteer-core`
+и Chromium, который принимает `--load-extension`.
 
 ## Лицензия
 
