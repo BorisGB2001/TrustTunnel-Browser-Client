@@ -26,7 +26,7 @@ function render() {
   let sub = "";
   if (key === "error") sub = runtime.error || "";
   else if (key === "on" && p)
-    sub = t("popupOnlyFirefox", p.kind === "socks" ? "SOCKS5 " + p.socksHost + ":" + p.socksPort : p.hostname + ":" + p.port);
+    sub = t("popupOnlyBrowser", p.kind === "socks" ? "SOCKS5 " + p.socksHost + ":" + p.socksPort : p.hostname + ":" + p.port);
   else if (!state.profiles.length) sub = t("popupAddServer");
   $("statusSub").textContent = sub;
   $("accessBtn").hidden = !(key === "error" && runtime.needsAccess);

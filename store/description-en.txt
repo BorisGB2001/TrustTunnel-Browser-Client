@@ -1,0 +1,19 @@
+TrustTunnel Browser Client connects Chrome to your own TrustTunnel server — the open-source VPN protocol by AdGuard. Only browser traffic goes through the tunnel; the rest of your system is untouched, and nothing needs to be installed besides the extension.
+
+You need your own TrustTunnel server. This extension does not provide a VPN service.
+
+Features
+• Import a tt:// key, a trusttunnel_client.toml config or a server export — or enter the server manually
+• Several servers, switchable from the toolbar
+• Split tunneling: everything except a list, or only listed sites; domains, IPs and subnets
+• Kill switch: if the server is down, traffic does not bypass the VPN
+• WebRTC leak protection while the VPN is on
+• Clear error messages: certificate, password, DNS, closed port
+• Optional SOCKS5 mode for the official trusttunnel_client (HTTP/3, anti-DPI)
+• English and Russian interface
+
+How it works: TrustTunnel is HTTP CONNECT over TLS with Basic authentication, so Chrome talks to your server as to an HTTPS proxy. The server certificate must be trusted by Chrome (Let's Encrypt works out of the box; a self-signed certificate can be imported).
+
+Privacy: no analytics, no telemetry, no data sent to the developer. Your server credentials are stored only in your Chrome profile.
+
+Unofficial community project, not affiliated with AdGuard. Open source (MIT): https://github.com/BorisGB2001/TrustTunnel-Browser-Client

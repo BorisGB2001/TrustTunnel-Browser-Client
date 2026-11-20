@@ -1,24 +1,17 @@
 /*
- * TrustTunnel Browser Client — background (Firefox event page / Chrome service worker).
+ * TrustTunnel Browser Client — background service worker.
  *
- * TrustTunnel is HTTP CONNECT over TLS with Basic auth, so the browser talks to the
- * server itself as to an HTTPS proxy.
- *   Firefox: proxy.onRequest -> type "https" with a preset Proxy-Authorization header.
- *   Chrome:  proxy.settings with a generated PAC script ("HTTPS host:port"),
- *            credentials are given in webRequest.onAuthRequired after the 407.
+ * TrustTunnel is HTTP CONNECT over TLS with Basic auth, so Chrome talks to the server
+ * itself as to an HTTPS proxy: proxy.settings with a generated PAC script
+ * ("HTTPS host:port"); credentials are given in webRequest.onAuthRequired after the 407.
  * Alternative: the local SOCKS5 listener of the official trusttunnel_client.
  */
 "use strict";
 
-// Chrome has no proxy.onRequest; everything Chrome-specific hangs off this flag.
-const IS_CHROME = !(browser.proxy && browser.proxy.onRequest);
-
 const HEALTH_ALARM = "tt-health";
-// Chrome's PAC sees only the host of https URLs, so the probe gets a host of its own
+// The PAC script sees only the host of https URLs, so the probe gets a host of its own
 // that the PAC script always sends through the tunnel.
-const HEALTH_URL = IS_CHROME
-  ? "https://connectivitycheck.gstatic.com/generate_204"
-  : "https://www.gstatic.com/generate_204";
+const HEALTH_URL = "https://connectivitycheck.gstatic.com/generate_204";
 const HEALTH_HOST = new URL(HEALTH_URL).hostname;
 const HEALTH_ORIGIN = `https://${HEALTH_HOST}/*`;
 
@@ -37,8 +30,7 @@ const DEFAULTS = {
 let settings = { ...DEFAULTS };
 let rt = { status: "off", error: null, latency: null, checkedAt: null, since: null };
 let healthNonce = null; // marks our own health-check request
-let authFails = 0;
-// Chrome: "proxy|user" whose credentials Chrome already holds in its auth cache this session.
+// "proxy|user" whose credentials Chrome already holds in its auth cache this session.
 // The extension has no host permission for websites, so it cannot answer a 407 for a page —
 // only for its own health probe. Until the probe has authenticated, pages are held back.
 let warmKey = null;
@@ -52,7 +44,7 @@ const ready = (async () => {
     warmKey = s.warmKey || null;
   } catch (_) {}
   updateBadge();
-  if (IS_CHROME) await applyChromeProxy();
+  await applyProxy();
 })();
 
 // ------------------------------------------------------------------ state helpers
@@ -62,8 +54,8 @@ const currentProfile = () => settings.profiles.find((p) => p.id === settings.pro
 async function saveSettings(patch) {
   settings = { ...settings, ...patch };
   await browser.storage.local.set(patch);
-  // Chrome keeps routing in a PAC script, so it is rebuilt on every change.
-  if (IS_CHROME) await applyChromeProxy();
+  // Routing lives in a PAC script, so it is rebuilt on every change.
+  await applyProxy();
 }
 
 async function setRuntime(patch) {
@@ -76,8 +68,7 @@ async function setRuntime(patch) {
 }
 
 // Chrome cannot draw SVG toolbar icons.
-const iconPath = (name) =>
-  IS_CHROME ? { 16: `icons/${name}-16.png`, 32: `icons/${name}-32.png` } : `icons/${name}.svg`;
+const iconPath = (name) => ({ 16: `icons/${name}-16.png`, 32: `icons/${name}-32.png` });
 
 function updateBadge() {
   let text = "", color = "#9e9e9e", title = t("titleOff"), icon = "icon-off";
@@ -106,63 +97,7 @@ async function applyWebRtc(on) {
   }
 }
 
-function basicAuth(user, pass) {
-  const bytes = new TextEncoder().encode(user + ":" + pass);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return "Basic " + btoa(bin);
-}
-
-// ------------------------------------------------------------------ proxy routing
-
-const DIRECT = { type: "direct" };
-
-function proxyFor(p) {
-  if (p.kind === "socks") {
-    return {
-      type: "socks",
-      host: p.socksHost || "127.0.0.1",
-      port: Number(p.socksPort) || 1080,
-      username: p.socksUser || undefined,
-      password: p.socksPass || undefined,
-      proxyDNS: true,
-      failoverTimeout: 5,
-    };
-  }
-  return {
-    type: "https",
-    host: p.hostname,
-    port: Number(p.port) || 443,
-    proxyAuthorizationHeader: basicAuth(p.username, p.password),
-    failoverTimeout: 5,
-  };
-}
-
-if (!IS_CHROME) browser.proxy.onRequest.addListener(
-  async (details) => {
-    await ready;
-    if (!settings.enabled) return DIRECT;
-    const p = currentProfile();
-    if (!p) return settings.killSwitch ? { type: "http", host: "127.0.0.1", port: 9 } : DIRECT;
-    // Our own health probe always goes through the tunnel and never fails over.
-    if (healthNonce && details.url.includes("tt-health=" + healthNonce)) return proxyFor(p);
-    let host;
-    try {
-      host = new URL(details.url).hostname;
-    } catch (_) {
-      return DIRECT;
-    }
-    // The VPN server itself is always reached directly (e.g. opening it to check the certificate).
-    if (p.kind !== "socks" && host === p.hostname) return DIRECT;
-    if (!TTRules.shouldTunnel(host, settings)) return DIRECT;
-    // Kill switch on: only the tunnel, the request fails if it is down.
-    // Kill switch off: Firefox falls back to a direct connection.
-    return settings.killSwitch ? proxyFor(p) : [proxyFor(p), DIRECT];
-  },
-  { urls: ["<all_urls>"] }
-);
-
-// ---- Chrome: the same decisions, compiled into a PAC script.
+// ------------------------------------------------------------------ proxy routing (PAC script)
 
 /** PAC proxy string for a profile; Chrome has no SOCKS auth and no failover timeout. */
 function pacProxyFor(p) {
@@ -178,7 +113,7 @@ async function setWarm(key) {
   try {
     await browser.storage.session.set({ warmKey: key });
   } catch (_) {}
-  await applyChromeProxy();
+  await applyProxy();
 }
 
 function buildPac() {
@@ -224,7 +159,7 @@ function toAsciiHost(entry) {
 
 let proxyApplied = null; // last PAC text (or "" when cleared), to skip no-op updates
 
-async function applyChromeProxy() {
+async function applyProxy() {
   const want = settings.enabled && (currentProfile() || settings.killSwitch) ? buildPac() : "";
   if (want === proxyApplied) return;
   try {
@@ -254,9 +189,8 @@ async function applyChromeProxy() {
 if (browser.proxy.onError) browser.proxy.onError.addListener((err) => console.warn("proxy error:", err && err.message));
 
 // ---- 407 from the server.
-// Firefox: fallback if the server ignores the preset header.
-// Chrome: the normal path — Chrome never sends proxy credentials before the challenge
-// and then caches them; a second challenge for the same request means they were rejected.
+// Chrome never sends proxy credentials before the challenge and then caches them;
+// a second challenge for the same request means they were rejected.
 const authSeen = new Set();
 
 async function onAuth(details) {
@@ -265,39 +199,30 @@ async function onAuth(details) {
   if (!details.isProxy || !settings.enabled || !p) return {};
   const sameHost = p.kind === "socks" || (details.challenger && details.challenger.host === p.hostname);
   if (!sameHost) return {};
-  let rejected;
-  if (IS_CHROME) {
-    rejected = authSeen.has(details.requestId);
-    if (authSeen.size > 500) authSeen.clear();
-    authSeen.add(details.requestId);
-  } else {
-    rejected = ++authFails > 3;
-  }
+  const rejected = authSeen.has(details.requestId);
+  if (authSeen.size > 500) authSeen.clear();
+  authSeen.add(details.requestId);
   if (p.kind === "socks" || rejected) {
-    if (IS_CHROME) await setWarm(null);
+    await setWarm(null);
     await setRuntime({ status: "error", error: t("errAuth407") });
     return { cancel: true };
   }
   return { authCredentials: { username: p.username, password: p.password } };
 }
 
-if (IS_CHROME) {
-  browser.webRequest.onAuthRequired.addListener(
-    (details, callback) => {
-      onAuth(details).then(callback, () => callback({}));
-    },
-    { urls: ["<all_urls>"] },
-    ["asyncBlocking"]
-  );
-} else {
-  browser.webRequest.onAuthRequired.addListener(onAuth, { urls: ["<all_urls>"] }, ["blocking"]);
-}
+browser.webRequest.onAuthRequired.addListener(
+  (details, callback) => {
+    onAuth(details).then(callback, () => callback({}));
+  },
+  { urls: ["<all_urls>"] },
+  ["asyncBlocking"]
+);
 
 // ------------------------------------------------------------------ health check
 
-// Firefox's own error code for the last health request (fetch only says "NetworkError").
+// Chrome's net::ERR_* code for the last health request (fetch only says "Failed to fetch").
 let healthErrorCode = null;
-// HTTP status of the last health response. Chrome's probe is a no-cors fetch (some installs enforce
+// HTTP status of the last health response. The probe is a no-cors fetch (some installs enforce
 // CORS on it despite the host permission and fail with net::ERR_FAILED), so the opaque response
 // hides the status; webRequest still sees it.
 let healthStatus = null;
@@ -314,32 +239,30 @@ browser.webRequest.onErrorOccurred.addListener(
   { urls: [HEALTH_URL + "*"] }
 );
 
-// Firefox codes (NS_ERROR_*, SEC_ERROR_*) and Chrome ones (net::ERR_*).
+// Chrome's net::ERR_* codes -> human hints.
 const ERROR_HINTS = [
-  [/SEC_ERROR_UNKNOWN_ISSUER|SELF_SIGNED|UNTRUSTED_ISSUER|CA_CERT_INVALID|SEC_ERROR_BAD_SIGNATURE|ERR_PROXY_CERTIFICATE_INVALID|ERR_CERT_AUTHORITY_INVALID/,
-    "hintCert"],
-  [/BAD_CERT_DOMAIN|ERR_CERT_COMMON_NAME_INVALID/, "hintCertDomain"],
-  [/EXPIRED|ERR_CERT_DATE_INVALID/, "hintCertExpired"],
-  [/PROXY_AUTHENTICATION_FAILED|407|ERR_PROXY_AUTH|ERR_INVALID_AUTH_CREDENTIALS/, "hintAuth"],
-  [/UNKNOWN_PROXY_HOST|UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED/, "hintDns"],
-  [/PROXY_CONNECTION_REFUSED|CONNECTION_REFUSED|ERR_PROXY_CONNECTION_FAILED/, "hintRefused"],
-  [/TIMEOUT|TIMED_OUT/, "hintTimeout"],
-  [/NET_RESET|NET_INTERRUPT|SSL_ERROR|NS_ERROR_NET_PARTIAL_TRANSFER|ERR_SSL_|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_EMPTY_RESPONSE/,
-    "hintTlsReset"],
-  [/PROXY_BAD_GATEWAY|PROXY_GATEWAY_TIMEOUT|PROXY_FORBIDDEN|ERR_TUNNEL_CONNECTION_FAILED/, "hintBadGateway"],
+  [/ERR_PROXY_CERTIFICATE_INVALID|ERR_CERT_AUTHORITY_INVALID/, "hintCert"],
+  [/ERR_CERT_COMMON_NAME_INVALID/, "hintCertDomain"],
+  [/ERR_CERT_DATE_INVALID/, "hintCertExpired"],
+  [/407|ERR_PROXY_AUTH|ERR_INVALID_AUTH_CREDENTIALS/, "hintAuth"],
+  [/ERR_NAME_NOT_RESOLVED/, "hintDns"],
+  [/CONNECTION_REFUSED|ERR_PROXY_CONNECTION_FAILED/, "hintRefused"],
+  [/TIMED_OUT/, "hintTimeout"],
+  [/ERR_SSL_|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_EMPTY_RESPONSE/, "hintTlsReset"],
+  [/ERR_TUNNEL_CONNECTION_FAILED/, "hintBadGateway"],
 ];
 
 function explain(e, code) {
   const msg = e && e.message ? e.message : String(e);
   if (e && e.name === "AbortError") return t("errTimeout");
   const p = currentProfile();
-  if (p && p.kind === "socks" && (!code || /CONNECTION_REFUSED|NetworkError/.test(code + msg)))
+  if (p && p.kind === "socks" && (!code || /CONNECTION_REFUSED|Failed to fetch/.test(code + msg)))
     return t("errSocks", (p.socksHost || "127.0.0.1") + ":" + (p.socksPort || 1080));
   if (code) {
     const hit = ERROR_HINTS.find(([re]) => re.test(code));
     return (hit ? t(hit[1]) : t("errConnectGeneric")) + " [" + code + "]";
   }
-  if (/NetworkError|Failed to fetch/i.test(msg))
+  if (/Failed to fetch/i.test(msg))
     return t("errNetwork");
   return msg;
 }
@@ -351,14 +274,12 @@ async function healthCheck({ quiet = false, retry = true } = {}) {
     await setRuntime({ status: "error", error: t("errNoServer") });
     return;
   }
-  if (IS_CHROME) {
-    await applyChromeProxy();
-    // Proxy not in our hands (another extension or policy): the probe would go direct and lie.
-    if (proxyApplied === null) return;
-  }
+  await applyProxy();
+  // Proxy not in our hands (another extension or policy): the probe would go direct and lie.
+  if (proxyApplied === null) return;
   // Chrome lets users switch off an extension's site access; without it Chrome neither answers
   // the proxy's 407 for us nor shows us the probe.
-  if (IS_CHROME && !(await browser.permissions.contains({ origins: [HEALTH_ORIGIN] }))) {
+  if (!(await browser.permissions.contains({ origins: [HEALTH_ORIGIN] }))) {
     await setWarm(null);
     await setRuntime({ status: "error", error: t("errHostAccess"), needsAccess: true, latency: null, since: null });
     return;
@@ -375,20 +296,19 @@ async function healthCheck({ quiet = false, retry = true } = {}) {
     const r = await fetch(HEALTH_URL + "?tt-health=" + healthNonce, {
       cache: "no-store",
       credentials: "omit",
-      mode: IS_CHROME ? "no-cors" : "cors",
+      mode: "no-cors",
       signal: ctrl.signal,
     });
     // Chrome hands the proxy's 407 to fetch when the auth challenge is cancelled.
     const status = r.type === "opaque" ? healthStatus : r.status;
     if (status === 407) {
-      if (IS_CHROME) await setWarm(null);
+      await setWarm(null);
       await setRuntime({ status: "error", error: t("errAuth407"), latency: null, since: null });
       return;
     }
     if (status >= 500) throw new Error(t("errHealthHttp", status));
-    authFails = 0;
     // The probe got through, so Chrome now holds the proxy credentials: let pages through.
-    if (IS_CHROME) await setWarm(keyFor(p));
+    await setWarm(keyFor(p));
     await setRuntime({
       status: "on",
       error: null,
@@ -418,7 +338,6 @@ async function healthCheck({ quiet = false, retry = true } = {}) {
 
 async function setEnabled(value) {
   await saveSettings({ enabled: !!value });
-  authFails = 0;
   authSeen.clear();
   if (value) {
     browser.alarms.create(HEALTH_ALARM, { periodInMinutes: 0.5 });
@@ -491,8 +410,8 @@ async function saveProfile({ profile }) {
   const list = [...settings.profiles];
   const idx = profile.id ? list.findIndex((x) => x.id === profile.id) : -1;
   const p = cleanProfile(profile, idx >= 0 ? list[idx] : {});
-  // Chrome: a new password is not in Chrome's auth cache yet — hold pages until the probe passes.
-  if (IS_CHROME && idx >= 0 && p.id === settings.profileId && p.password !== list[idx].password) await setWarm(null);
+  // A new password is not in Chrome's auth cache yet — hold pages until the probe passes.
+  if (idx >= 0 && p.id === settings.profileId && p.password !== list[idx].password) await setWarm(null);
   if (idx >= 0) list[idx] = p;
   else {
     p.id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -545,7 +464,6 @@ const handlers = {
     await saveSettings(clean);
     if ("webrtcProtect" in clean && settings.enabled) await applyWebRtc(true);
     if (changedServer && settings.enabled) {
-      authFails = 0;
       authSeen.clear();
       await setRuntime({ status: "connecting", error: null, since: null });
       await healthCheck();
@@ -577,7 +495,7 @@ const handlers = {
   checkIp,
 };
 
-// sendResponse + `return true` works in both browsers (Chrome ignores a returned promise).
+// sendResponse + `return true`: Chrome ignores a promise returned from onMessage.
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== browser.runtime.id || !msg || !handlers[msg.type]) return undefined;
   ready

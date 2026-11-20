@@ -206,7 +206,7 @@
   "popupSettings": {
     "message": "Settings"
   },
-  "popupOnlyFirefox": {
+  "popupOnlyBrowser": {
     "message": "Chrome traffic only · $1"
   },
   "popupAddServer": {
