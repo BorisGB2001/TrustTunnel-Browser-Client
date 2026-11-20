@@ -20,6 +20,7 @@ const HEALTH_URL = IS_CHROME
   ? "https://connectivitycheck.gstatic.com/generate_204"
   : "https://www.gstatic.com/generate_204";
 const HEALTH_HOST = new URL(HEALTH_URL).hostname;
+const HEALTH_ORIGIN = `https://${HEALTH_HOST}/*`;
 
 const DEFAULTS = {
   enabled: false,
@@ -296,6 +297,16 @@ if (IS_CHROME) {
 
 // Firefox's own error code for the last health request (fetch only says "NetworkError").
 let healthErrorCode = null;
+// HTTP status of the last health response. Chrome's probe is a no-cors fetch (some installs enforce
+// CORS on it despite the host permission and fail with net::ERR_FAILED), so the opaque response
+// hides the status; webRequest still sees it.
+let healthStatus = null;
+browser.webRequest.onHeadersReceived.addListener(
+  (d) => {
+    if (healthNonce && d.url.includes("tt-health=" + healthNonce)) healthStatus = d.statusCode;
+  },
+  { urls: [HEALTH_URL + "*"] }
+);
 browser.webRequest.onErrorOccurred.addListener(
   (d) => {
     if (healthNonce && d.url.includes("tt-health=" + healthNonce)) healthErrorCode = d.error;
@@ -333,7 +344,7 @@ function explain(e, code) {
   return msg;
 }
 
-async function healthCheck({ quiet = false } = {}) {
+async function healthCheck({ quiet = false, retry = true } = {}) {
   if (!settings.enabled) return;
   const p = currentProfile();
   if (!p) {
@@ -345,9 +356,18 @@ async function healthCheck({ quiet = false } = {}) {
     // Proxy not in our hands (another extension or policy): the probe would go direct and lie.
     if (proxyApplied === null) return;
   }
+  // Chrome lets users switch off an extension's site access; without it Chrome neither answers
+  // the proxy's 407 for us nor shows us the probe.
+  if (IS_CHROME && !(await browser.permissions.contains({ origins: [HEALTH_ORIGIN] }))) {
+    await setWarm(null);
+    await setRuntime({ status: "error", error: t("errHostAccess"), needsAccess: true, latency: null, since: null });
+    return;
+  }
+  if (rt.needsAccess) await setRuntime({ needsAccess: false });
   if (!quiet && rt.status !== "on") await setRuntime({ status: "connecting", error: null });
   healthNonce = Math.random().toString(36).slice(2);
   healthErrorCode = null;
+  healthStatus = null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   const t0 = performance.now();
@@ -355,15 +375,17 @@ async function healthCheck({ quiet = false } = {}) {
     const r = await fetch(HEALTH_URL + "?tt-health=" + healthNonce, {
       cache: "no-store",
       credentials: "omit",
+      mode: IS_CHROME ? "no-cors" : "cors",
       signal: ctrl.signal,
     });
     // Chrome hands the proxy's 407 to fetch when the auth challenge is cancelled.
-    if (r.status === 407) {
+    const status = r.type === "opaque" ? healthStatus : r.status;
+    if (status === 407) {
       if (IS_CHROME) await setWarm(null);
       await setRuntime({ status: "error", error: t("errAuth407"), latency: null, since: null });
       return;
     }
-    if (r.status >= 500) throw new Error(t("errHealthHttp", r.status));
+    if (status >= 500) throw new Error(t("errHealthHttp", status));
     authFails = 0;
     // The probe got through, so Chrome now holds the proxy credentials: let pages through.
     if (IS_CHROME) await setWarm(keyFor(p));
@@ -379,6 +401,14 @@ async function healthCheck({ quiet = false } = {}) {
     // onErrorOccurred may fire just after fetch rejects.
     if (!healthErrorCode) await new Promise((r) => setTimeout(r, 300));
     console.warn("health check failed:", healthErrorCode, e);
+    // One-off failures (a pooled proxy connection the server already closed, a network switch
+    // after sleep) end in a generic net::ERR_FAILED: probe once more before showing an error.
+    if (retry && !(e && e.name === "AbortError") && settings.enabled) {
+      clearTimeout(timer);
+      healthNonce = null;
+      await new Promise((r) => setTimeout(r, 1500));
+      return healthCheck({ quiet: true, retry: false });
+    }
     await setRuntime({ status: "error", error: explain(e, healthErrorCode), latency: null, since: null });
   } finally {
     clearTimeout(timer);

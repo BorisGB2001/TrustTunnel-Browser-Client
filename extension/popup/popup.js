@@ -29,6 +29,7 @@ function render() {
     sub = t("popupOnlyFirefox", p.kind === "socks" ? "SOCKS5 " + p.socksHost + ":" + p.socksPort : p.hostname + ":" + p.port);
   else if (!state.profiles.length) sub = t("popupAddServer");
   $("statusSub").textContent = sub;
+  $("accessBtn").hidden = !(key === "error" && runtime.needsAccess);
 
   const sel = $("profile");
   sel.textContent = "";
@@ -127,6 +128,18 @@ $("siteBtn").addEventListener("click", async (e) => {
     await api("editList", { list, host: TTRules.siteOf(currentHost), add: op === "add" });
     await refresh();
     Toast.ok(t("toastListUpdated"));
+  } catch (err) {
+    Toast.error(err.message);
+  }
+});
+
+// Site access switched off in Chrome: ask for it back (needs this click as the user gesture).
+$("accessBtn").addEventListener("click", async () => {
+  try {
+    const ok = await browser.permissions.request({ origins: ["https://connectivitycheck.gstatic.com/*"] });
+    if (!ok) return;
+    state = await api("refresh");
+    render();
   } catch (err) {
     Toast.error(err.message);
   }

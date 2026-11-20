@@ -22,6 +22,7 @@ header strong { font-size: 16px; }
   background: var(--bg-soft); border-radius: var(--radius); padding: 10px 12px;
 }
 .status .small { word-break: break-word; }
+#accessBtn { margin-top: 8px; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.on { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent); }
 .dot.connecting { background: var(--warn); animation: pulse 1s infinite; }

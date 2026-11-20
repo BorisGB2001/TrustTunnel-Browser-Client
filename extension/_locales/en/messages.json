@@ -484,5 +484,11 @@
   },
   "errProxyControl": {
     "message": "Chrome proxy settings are controlled by another extension or by policy. Disable the other proxy/VPN extension."
+  },
+  "errHostAccess": {
+    "message": "The extension has no access to connectivitycheck.gstatic.com (Chrome's site access setting), so it cannot check the tunnel or sign in to the server. Click “Allow access”."
+  },
+  "btnGrantAccess": {
+    "message": "Allow access"
   }
 }
