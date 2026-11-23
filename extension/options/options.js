@@ -258,6 +258,8 @@ function fillSettings() {
   $("excludeList").value = s.excludeList.join("\n");
   $("includeList").value = s.includeList.join("\n");
   for (const k of ["bypassLocal", "killSwitch", "webrtcProtect"]) $(k).checked = !!s[k];
+  $("statsUrl").value = s.statsUrl || "";
+  $("version").textContent = state.version ? "v" + state.version : "";
 }
 
 $("saveBtn").addEventListener("click", async () => {
@@ -267,6 +269,7 @@ $("saveBtn").addEventListener("click", async () => {
     includeList: TTRules.parseList($("includeList").value),
   };
   for (const k of ["bypassLocal", "killSwitch", "webrtcProtect"]) patch[k] = $(k).checked;
+  patch.statsUrl = $("statsUrl").value.trim();
   try {
     state = await api("setSettings", { patch });
     fillSettings();

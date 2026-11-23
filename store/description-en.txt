@@ -8,6 +8,9 @@ Features
 • Split tunneling: everything except a list, or only listed sites; domains, IPs and subnets
 • Kill switch: if the server is down, traffic does not bypass the VPN
 • WebRTC leak protection while the VPN is on
+• Check IP: your address with the VPN and without it; optionally its country, provider and type
+• Right-click menu of the toolbar icon and the Alt+Shift+V hotkey: VPN on/off, server switch
+• Optional "Statistics" button that opens your panel page
 • Clear error messages: certificate, password, DNS, closed port
 • Optional SOCKS5 mode for the official trusttunnel_client (HTTP/3, anti-DPI)
 • English and Russian interface

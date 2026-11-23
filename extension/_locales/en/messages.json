@@ -490,5 +490,77 @@
   },
   "btnGrantAccess": {
     "message": "Allow access"
+  },
+  "menuVpnOn": {
+    "message": "VPN on"
+  },
+  "menuServer": {
+    "message": "Server"
+  },
+  "cmdToggleVpn": {
+    "message": "Turn the VPN on / off"
+  },
+  "popupStats": {
+    "message": "Statistics"
+  },
+  "ipWithVpn": {
+    "message": "With VPN"
+  },
+  "ipWithoutVpn": {
+    "message": "Without VPN"
+  },
+  "ipVpnOff": {
+    "message": "VPN is off"
+  },
+  "ipFailed": {
+    "message": "failed: $1"
+  },
+  "ipInfoEnable": {
+    "message": "Show country, provider and address type (asks proxycheck.io about these two addresses)"
+  },
+  "ipKind_vpn": {
+    "message": "VPN"
+  },
+  "ipKind_proxy": {
+    "message": "Proxy"
+  },
+  "ipKind_tor": {
+    "message": "Tor"
+  },
+  "ipKind_hosting": {
+    "message": "Hosting"
+  },
+  "ipKind_residential": {
+    "message": "Home ISP"
+  },
+  "ipKind_wireless": {
+    "message": "Mobile"
+  },
+  "ipKind_business": {
+    "message": "Business"
+  },
+  "ipKind_education": {
+    "message": "Education"
+  },
+  "ipKind_government": {
+    "message": "Government"
+  },
+  "ipKind_other": {
+    "message": "Other"
+  },
+  "errIpAnswer": {
+    "message": "unexpected answer of the IP service"
+  },
+  "optStats": {
+    "message": "Statistics"
+  },
+  "statsUrlLabel": {
+    "message": "Address of the statistics page"
+  },
+  "statsHint": {
+    "message": "If set, the popup shows a “Statistics” button that opens this page — for example your account in TrustPanel, a web panel for TrustTunnel servers:"
+  },
+  "errStatsUrl": {
+    "message": "The statistics address must start with http:// or https://"
   }
 }

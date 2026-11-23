@@ -24,8 +24,14 @@ For setups a browser cannot handle (HTTP/3-only servers, anti-DPI, `client_rando
 - Split tunneling: everything except a list, or only listed sites (domains with subdomains, IPv4, CIDR). Local addresses always go direct.
 - Kill switch: no direct fallback when the server is unreachable.
 - WebRTC leak protection while the VPN is on.
+- Check IP: shows your address with the VPN and without it; optionally the country, provider and address type (proxycheck.io, off by default).
+- Toolbar icon menu (right click): VPN on/off and server switch. Hotkey `Alt+Shift+V` turns the VPN on or off (change it at `chrome://extensions/shortcuts`).
+- Optional "Statistics" button that opens a page you set, for example your account in [TrustPanel](https://github.com/BorisGB2001/TrustPanel).
+- DNS prefetch and preconnect are switched off while the VPN is on.
 - Clear error messages based on Chrome's network error codes.
 - English and Russian interface.
+
+"VPN only in marked tabs", containers and routing by country exist only in the Firefox version: Chrome sets the proxy with a PAC script, which knows neither the tab nor the country of a site.
 
 ## Server requirements (direct mode)
 

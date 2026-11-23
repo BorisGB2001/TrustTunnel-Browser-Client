@@ -14,6 +14,14 @@ const HEALTH_ALARM = "tt-health";
 const HEALTH_URL = "https://connectivitycheck.gstatic.com/generate_204";
 const HEALTH_HOST = new URL(HEALTH_URL).hostname;
 const HEALTH_ORIGIN = `https://${HEALTH_HOST}/*`;
+// "Check IP": the PAC script always sends the first host through the tunnel and the
+// second one directly, so one click shows the address with the VPN and without it.
+// Both answer with CORS *, so no host permission is needed.
+const IP_VPN_URL = "https://api.ipify.org/?format=json";
+const IP_DIRECT_URL = "https://api4.ipify.org/?format=json";
+// Country, provider and kind of an address (opt-in, optional host permission). Asked through the tunnel.
+const IP_INFO_URL = "https://proxycheck.io/v3/";
+const IP_INFO_ORIGIN = "https://proxycheck.io/*";
 
 const DEFAULTS = {
   enabled: false,
@@ -25,6 +33,8 @@ const DEFAULTS = {
   bypassLocal: true,
   killSwitch: true,
   webrtcProtect: true,
+  statsUrl: "", // "Statistics" button in the popup (e.g. a TrustPanel portal)
+  ipInfo: false, // "Check IP" also asks proxycheck.io about the addresses (opt-in)
 };
 
 let settings = { ...DEFAULTS };
@@ -45,6 +55,9 @@ const ready = (async () => {
   } catch (_) {}
   updateBadge();
   await applyProxy();
+  // The service worker may start without onStartup (update, crash, wake-up): keep the probe scheduled.
+  if (settings.enabled && !(await browser.alarms.get(HEALTH_ALARM)))
+    browser.alarms.create(HEALTH_ALARM, { periodInMinutes: 0.5 });
 })();
 
 // ------------------------------------------------------------------ state helpers
@@ -95,6 +108,15 @@ async function applyWebRtc(on) {
   } catch (e) {
     console.warn("WebRTC policy:", e);
   }
+  // DNS prefetch and preconnect would name the sites to the local resolver and open
+  // connections before the PAC decision matters.
+  try {
+    const predict = browser.privacy.network.networkPredictionEnabled;
+    if (on) await predict.set({ value: false });
+    else await predict.clear({});
+  } catch (e) {
+    console.warn("network prediction:", e);
+  }
 }
 
 // ------------------------------------------------------------------ proxy routing (PAC script)
@@ -122,6 +144,8 @@ function buildPac() {
     proxy: p ? pacProxyFor(p) : "PROXY 127.0.0.1:9", // nowhere: kill switch without a server
     server: p && p.kind !== "socks" ? p.hostname : null,
     health: HEALTH_HOST,
+    viaTunnel: [new URL(IP_VPN_URL).hostname, new URL(IP_INFO_URL).hostname],
+    direct: new URL(IP_DIRECT_URL).hostname,
     // Credentials not confirmed yet (no SOCKS auth in Chrome, so SOCKS never waits).
     hold: !!p && p.kind !== "socks" && keyFor(p) !== warmKey,
     killSwitch: !!settings.killSwitch,
@@ -137,7 +161,8 @@ function buildPac() {
 var CFG = ${JSON.stringify(cfg)};
 function FindProxyForURL(url, host) {
   host = String(host || "").toLowerCase();
-  if (host === CFG.health) return CFG.proxy;
+  if (host === CFG.health || CFG.viaTunnel.indexOf(host) >= 0) return CFG.proxy;
+  if (host === CFG.direct) return "DIRECT";
   if (CFG.server && host === CFG.server) return "DIRECT";
   if (!TTRules.shouldTunnel(host, CFG.rules)) return "DIRECT";
   if (CFG.hold) return CFG.killSwitch ? "PROXY 127.0.0.1:9" : "DIRECT";
@@ -197,12 +222,13 @@ async function onAuth(details) {
   await ready;
   const p = currentProfile();
   if (!details.isProxy || !settings.enabled || !p) return {};
-  const sameHost = p.kind === "socks" || (details.challenger && details.challenger.host === p.hostname);
-  if (!sameHost) return {};
+  // Chrome has no SOCKS auth, so with a SOCKS profile a proxy challenge is never ours.
+  if (p.kind === "socks") return {};
+  if (!details.challenger || details.challenger.host !== p.hostname) return {};
   const rejected = authSeen.has(details.requestId);
   if (authSeen.size > 500) authSeen.clear();
   authSeen.add(details.requestId);
-  if (p.kind === "socks" || rejected) {
+  if (rejected) {
     await setWarm(null);
     await setRuntime({ status: "error", error: t("errAuth407") });
     return { cancel: true };
@@ -267,7 +293,14 @@ function explain(e, code) {
   return msg;
 }
 
-async function healthCheck({ quiet = false, retry = true } = {}) {
+// Checks run one at a time: they share the nonce, the status and the error code.
+let healthQueue = Promise.resolve();
+function healthCheck(opts) {
+  healthQueue = healthQueue.then(() => runHealthCheck(opts)).catch((e) => console.warn("health check:", e));
+  return healthQueue;
+}
+
+async function runHealthCheck({ quiet = false, retry = true } = {}) {
   if (!settings.enabled) return;
   const p = currentProfile();
   if (!p) {
@@ -327,7 +360,7 @@ async function healthCheck({ quiet = false, retry = true } = {}) {
       clearTimeout(timer);
       healthNonce = null;
       await new Promise((r) => setTimeout(r, 1500));
-      return healthCheck({ quiet: true, retry: false });
+      return runHealthCheck({ quiet: true, retry: false });
     }
     await setRuntime({ status: "error", error: explain(e, healthErrorCode), latency: null, since: null });
   } finally {
@@ -348,12 +381,65 @@ async function setEnabled(value) {
     await applyWebRtc(false);
     await setRuntime({ status: "off", error: null, latency: null, checkedAt: null, since: null });
   }
+  rebuildMenus();
 }
+
+// ------------------------------------------------------------------ toolbar icon menu, hotkey
+
+let menusBuilding = Promise.resolve();
+const menuItem = (props) =>
+  new Promise((resolve) => browser.contextMenus.create(props, () => resolve(void browser.runtime.lastError)));
+
+/** Right-click menu of the toolbar icon: VPN on/off and the server list. */
+function rebuildMenus() {
+  menusBuilding = menusBuilding.then(async () => {
+    try {
+      await browser.contextMenus.removeAll();
+      await menuItem({ id: "toggle-vpn", type: "checkbox", title: t("menuVpnOn"), contexts: ["action"], checked: settings.enabled });
+      if (settings.profiles.length > 1) {
+        await menuItem({ id: "servers", title: t("menuServer"), contexts: ["action"] });
+        for (const p of settings.profiles)
+          await menuItem({
+            id: "srv:" + p.id,
+            parentId: "servers",
+            type: "radio",
+            title: p.name,
+            contexts: ["action"],
+            checked: p.id === settings.profileId,
+          });
+      }
+    } catch (e) {
+      console.warn("menus:", e);
+    }
+  });
+  return menusBuilding;
+}
+
+browser.contextMenus.onClicked.addListener(async (info) => {
+  await ready;
+  try {
+    if (info.menuItemId === "toggle-vpn") await setEnabled(!settings.enabled);
+    else if (typeof info.menuItemId === "string" && info.menuItemId.startsWith("srv:"))
+      await handlers.setSettings({ patch: { profileId: info.menuItemId.slice(4) } });
+  } catch (e) {
+    console.warn("menu action:", e);
+  }
+});
+
+browser.commands.onCommand.addListener(async (command) => {
+  await ready;
+  try {
+    if (command === "toggle-vpn") await setEnabled(!settings.enabled);
+  } catch (e) {
+    console.warn("command:", e);
+  }
+});
 
 // ------------------------------------------------------------------ lifecycle
 
 async function resume() {
   await ready;
+  rebuildMenus();
   if (!settings.enabled) return;
   browser.alarms.create(HEALTH_ALARM, { periodInMinutes: 0.5 });
   await applyWebRtc(true);
@@ -379,7 +465,7 @@ function publicProfile(p) {
 
 async function getState() {
   const { profiles, ...s } = settings;
-  return { settings: s, profiles: profiles.map(publicProfile), runtime: rt };
+  return { settings: s, profiles: profiles.map(publicProfile), runtime: rt, version: browser.runtime.getManifest().version };
 }
 
 function cleanProfile(input, old = {}) {
@@ -420,6 +506,7 @@ async function saveProfile({ profile }) {
   const patch = { profiles: list };
   if (!settings.profileId) patch.profileId = p.id;
   await saveSettings(patch);
+  rebuildMenus();
   if (settings.enabled && settings.profileId === p.id) await healthCheck();
   return { profile: publicProfile(p) };
 }
@@ -429,20 +516,70 @@ async function deleteProfile({ id }) {
   const patch = { profiles: list };
   if (settings.profileId === id) patch.profileId = list[0] ? list[0].id : null;
   await saveSettings(patch);
-  if (settings.enabled) await (patch.profileId ? healthCheck() : setEnabled(false));
+  rebuildMenus();
+  // Only removing the server in use changes the connection: switch to the next one or turn off.
+  if (settings.enabled && "profileId" in patch) await (patch.profileId ? healthCheck() : setEnabled(false));
   return {};
 }
 
-async function checkIp() {
+async function fetchJson(url, ms = 10000) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000);
+  const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch("https://api.ipify.org?format=json", { cache: "no-store", signal: ctrl.signal });
-    const j = await r.json();
-    return { ip: j.ip, viaVpn: settings.enabled && TTRules.shouldTunnel("api.ipify.org", settings) };
+    const r = await fetch(url, { cache: "no-store", credentials: "omit", signal: ctrl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } catch (e) {
+    throw new Error(e && e.name === "AbortError" ? t("errTimeout") : e && e.message ? e.message : String(e));
   } finally {
     clearTimeout(timer);
   }
+}
+
+const rnd = () => Math.random().toString(36).slice(2);
+
+async function ipVia(url) {
+  try {
+    const j = await fetchJson(url + "&n=" + rnd());
+    if (!j || typeof j.ip !== "string" || !/^[0-9a-f.:]{3,45}$/i.test(j.ip)) throw new Error(t("errIpAnswer"));
+    return { ip: j.ip };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+const IP_KINDS = ["residential", "wireless", "business", "hosting", "education", "government"];
+
+/** Country, provider and kind of an address from proxycheck.io (only when the user enabled it). */
+async function ipDetails(ip) {
+  try {
+    const j = await fetchJson(IP_INFO_URL + encodeURIComponent(ip));
+    const d = j && j[ip];
+    if (!d) return null;
+    const det = d.detections || {};
+    const net = d.network || {};
+    const loc = d.location || {};
+    let kind = String(net.type || "").toLowerCase();
+    if (det.tor) kind = "tor";
+    else if (det.vpn) kind = "vpn";
+    else if (det.proxy) kind = "proxy";
+    else if (det.hosting) kind = "hosting";
+    else if (!IP_KINDS.includes(kind)) kind = "other";
+    const str = (v) => (typeof v === "string" ? v.slice(0, 80) : "");
+    const code = str(loc.country_code).toUpperCase();
+    return { kind, provider: str(net.provider || net.organisation), country: /^[A-Z]{2}$/.test(code) ? code : "" };
+  } catch (_) {
+    return null;
+  }
+}
+
+/** External addresses with the VPN (forced through the tunnel) and without it (forced direct). */
+async function checkIp() {
+  const hasVpn = settings.enabled && !!currentProfile();
+  const [vpn, direct] = await Promise.all([hasVpn ? ipVia(IP_VPN_URL) : null, ipVia(IP_DIRECT_URL)]);
+  const ipInfo = settings.ipInfo && (await browser.permissions.contains({ origins: [IP_INFO_ORIGIN] }));
+  if (ipInfo) await Promise.all([vpn, direct].filter((x) => x && x.ip).map(async (x) => (x.info = await ipDetails(x.ip))));
+  return { vpn, direct, ipInfo };
 }
 
 const handlers = {
@@ -452,17 +589,28 @@ const handlers = {
     return getState();
   },
   async setSettings({ patch }) {
-    const allowed = ["profileId", "mode", "excludeList", "includeList", "bypassLocal", "killSwitch", "webrtcProtect"];
+    const allowed = ["profileId", "mode", "excludeList", "includeList", "bypassLocal", "killSwitch", "webrtcProtect", "statsUrl", "ipInfo"];
     const clean = {};
     for (const k of allowed) if (k in patch) clean[k] = patch[k];
     if ("excludeList" in clean) clean.excludeList = TTRules.parseList(clean.excludeList.join("\n"));
     if ("includeList" in clean) clean.includeList = TTRules.parseList(clean.includeList.join("\n"));
     if ("mode" in clean && !["exclude", "include"].includes(clean.mode)) clean.mode = "exclude";
+    if ("ipInfo" in clean) clean.ipInfo = !!clean.ipInfo;
+    if ("statsUrl" in clean) {
+      const raw = String(clean.statsUrl || "").trim();
+      let ok = !raw;
+      try {
+        ok = ok || /^https?:$/.test(new URL(raw).protocol);
+      } catch (_) {}
+      if (!ok) throw new Error(t("errStatsUrl"));
+      clean.statsUrl = raw;
+    }
     if ("profileId" in clean && clean.profileId && !settings.profiles.some((p) => p.id === clean.profileId))
       throw new Error(t("errNoSuchServer"));
     const changedServer = "profileId" in clean && clean.profileId !== settings.profileId;
     await saveSettings(clean);
     if ("webrtcProtect" in clean && settings.enabled) await applyWebRtc(true);
+    if ("profileId" in clean) rebuildMenus();
     if (changedServer && settings.enabled) {
       authSeen.clear();
       await setRuntime({ status: "connecting", error: null, since: null });

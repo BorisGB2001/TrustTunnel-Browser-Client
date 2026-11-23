@@ -12,7 +12,7 @@
   <header class="row">
     <img src="../icons/icon-on.svg" width="32" height="32" alt="">
     <div class="grow">
-      <h1 data-i18n="extName"></h1>
+      <h1><span data-i18n="extName"></span> <span class="version" id="version"></span></h1>
       <div class="muted small" data-i18n="optIntro"></div>
     </div>
   </header>
@@ -84,6 +84,15 @@
     <label class="check"><input type="checkbox" id="killSwitch"> <span data-i18n="optKillSwitch"></span></label>
     <label class="check"><input type="checkbox" id="webrtcProtect"> <span data-i18n="optWebrtc"></span></label>
     <p class="muted small" data-i18n="optDnsHint"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="optStats"></h2>
+    <label><span data-i18n="statsUrlLabel"></span>
+      <input type="url" id="statsUrl" spellcheck="false" placeholder="https://panel.example.com/portal">
+    </label>
+    <p class="muted small"><span data-i18n="statsHint"></span>
+      <a href="https://github.com/BorisGB2001/TrustPanel" target="_blank" rel="noopener noreferrer">github.com/BorisGB2001/TrustPanel</a></p>
   </section>
 
   <div class="actions">

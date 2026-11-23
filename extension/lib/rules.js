@@ -7,12 +7,26 @@ function TTRulesFactory() {
   function normalizeEntry(raw) {
     let s = String(raw || "").trim().toLowerCase();
     if (!s || s.startsWith("#")) return "";
-    if (/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(s)) return s; // IPv4 CIDR
-    s = s.replace(/^[a-z]+:\/\//, "").replace(/[/?#].*$/, "");
+    const cidr = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(s);
+    if (cidr) return ipv4ToInt(cidr[1]) !== null && Number(cidr[2]) <= 32 ? s : ""; // IPv4 CIDR
+    if (/^\[?[0-9a-f:.]+\]?\/\d+$/.test(s)) return ""; // any other "address/prefix" (IPv6 CIDR) is not supported
+    s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "");
+    s = s.replace(/^[^@]*@/, ""); // user:pass@host
     s = s.replace(/^\*\./, "").replace(/^\./, "");
-    if (/^\[.*\]$/.test(s)) s = s.slice(1, -1);
-    else if (/^[^:]+:\d+$/.test(s)) s = s.replace(/:\d+$/, "");
-    return s;
+    if (!s) return "";
+    // The URL parser gives the form request hosts arrive in: punycode for IDN,
+    // no port, canonical IPv6. Anything it rejects cannot match a host anyway.
+    // (Only pages call this; the PAC copy of the rules never normalises entries.)
+    try {
+      s = new URL("http://" + s).hostname;
+    } catch (_) {
+      try {
+        s = new URL("http://[" + s + "]").hostname; // bare IPv6
+      } catch (_e) {
+        return "";
+      }
+    }
+    return s.replace(/^\[|\]$/g, "").replace(/\.$/, "");
   }
 
   function parseList(text) {

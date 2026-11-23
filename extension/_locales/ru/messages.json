@@ -490,5 +490,77 @@
   },
   "btnGrantAccess": {
     "message": "Разрешить доступ"
+  },
+  "menuVpnOn": {
+    "message": "VPN включён"
+  },
+  "menuServer": {
+    "message": "Сервер"
+  },
+  "cmdToggleVpn": {
+    "message": "Включить / выключить VPN"
+  },
+  "popupStats": {
+    "message": "Статистика"
+  },
+  "ipWithVpn": {
+    "message": "С VPN"
+  },
+  "ipWithoutVpn": {
+    "message": "Без VPN"
+  },
+  "ipVpnOff": {
+    "message": "VPN выключен"
+  },
+  "ipFailed": {
+    "message": "ошибка: $1"
+  },
+  "ipInfoEnable": {
+    "message": "Показать страну, провайдера и тип адреса (эти два адреса будут отправлены на proxycheck.io)"
+  },
+  "ipKind_vpn": {
+    "message": "VPN"
+  },
+  "ipKind_proxy": {
+    "message": "Прокси"
+  },
+  "ipKind_tor": {
+    "message": "Tor"
+  },
+  "ipKind_hosting": {
+    "message": "Хостинг"
+  },
+  "ipKind_residential": {
+    "message": "Домашний"
+  },
+  "ipKind_wireless": {
+    "message": "Мобильный"
+  },
+  "ipKind_business": {
+    "message": "Организация"
+  },
+  "ipKind_education": {
+    "message": "Образование"
+  },
+  "ipKind_government": {
+    "message": "Госорган"
+  },
+  "ipKind_other": {
+    "message": "Другое"
+  },
+  "errIpAnswer": {
+    "message": "неожиданный ответ сервиса IP"
+  },
+  "optStats": {
+    "message": "Статистика"
+  },
+  "statsUrlLabel": {
+    "message": "Адрес страницы статистики"
+  },
+  "statsHint": {
+    "message": "Если адрес задан, в окне расширения появится кнопка «Статистика», которая открывает эту страницу — например, ваш кабинет в TrustPanel, веб-панели для серверов TrustTunnel:"
+  },
+  "errStatsUrl": {
+    "message": "Адрес статистики должен начинаться с http:// или https://"
   }
 }

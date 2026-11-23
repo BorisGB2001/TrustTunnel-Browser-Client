@@ -99,7 +99,9 @@ async function main() {
     check("PAC controlled by extension", ps.levelOfControl === "controlled_by_this_extension", ps.levelOfControl);
 
     const ip = await r.call("checkIp");
-    check("external IP differs from direct", ip.ip && ip.ip !== ip0, `${ip0} → ${ip.ip} (viaVpn=${ip.viaVpn})`);
+    const vpnIp = ip.vpn && ip.vpn.ip, dirIp = ip.direct && ip.direct.ip;
+    check("Check IP: VPN address differs from the direct one", vpnIp && dirIp && vpnIp !== dirIp, `direct ${dirIp} / VPN ${vpnIp}`);
+    check("Check IP: direct address is the real one", dirIp === ip0, `${dirIp} vs ${ip0}`);
 
     const page = await r.browser.newPage();
     for (const url of ["https://example.com/", "https://www.wikipedia.org/"]) {
@@ -109,11 +111,12 @@ async function main() {
       check("page " + url, ok, ok ? `${res.status()} in ${Date.now() - t0} ms` : String(res && res.message));
     }
 
-    // Split tunnelling: exclude ipify → direct IP again.
-    await r.call("setSettings", { patch: { excludeList: ["api.ipify.org"] } });
+    // Split tunnelling: an excluded site is loaded past the tunnel.
+    await r.call("setSettings", { patch: { excludeList: ["ifconfig.me"] } });
     await sleep(500);
-    const ip2 = await r.call("checkIp");
-    check("excluded site goes direct", ip2.ip === ip0, `${ip2.ip} (viaVpn=${ip2.viaVpn})`);
+    const seen = await page.goto("https://ifconfig.me/ip", { waitUntil: "domcontentloaded", timeout: 30000 })
+      .then(() => page.evaluate(() => document.body.innerText.trim())).catch((e) => String(e.message));
+    check("excluded site goes direct", seen === ip0, `${seen} vs ${ip0}`);
 
     await r.call("setEnabled", { value: false });
   } finally {

@@ -119,6 +119,28 @@ async function main() {
     check("excluded example.org loads", r2 && r2.status && r2.status() === 200);
     check("excluded example.org did NOT use tunnel", !log.some((l) => l.includes("example.org")));
 
+    // 3a. Check IP: one host is forced through the tunnel, the other goes direct even with the VPN on.
+    const ipRes = await call("checkIp");
+    check("Check IP: both addresses answered", !!(ipRes.vpn && ipRes.vpn.ip && ipRes.direct && ipRes.direct.ip), JSON.stringify(ipRes));
+    check("Check IP: VPN address asked through the tunnel", sawConnect("api.ipify.org"));
+    check("Check IP: direct address asked past the tunnel", !log.some((l) => l.includes("api4.ipify.org")));
+
+    // 3b. Toolbar icon menu and hotkey.
+    st = await call("getState");
+    check("state carries the version", st.version === require(path.join(EXT, "manifest.json")).version, st.version);
+    await call("saveProfile", { profile: { kind: "socks", name: "second", socksHost: "127.0.0.1", socksPort: 1080 } });
+    await sw.evaluate(() => menusBuilding);
+    const cmds = await sw.evaluate(() => chrome.commands.getAll());
+    check("hotkey command registered", cmds.some((c) => c.name === "toggle-vpn"), JSON.stringify(cmds.map((c) => c.name)));
+    const second = (await call("getState")).profiles.find((p) => p.name === "second");
+    await call("deleteProfile", { id: second.id });
+    const pred = await sw.evaluate(() => chrome.privacy.network.networkPredictionEnabled.get({}));
+    check("network prediction off while the VPN is on", pred.value === false && pred.levelOfControl === "controlled_by_this_extension", JSON.stringify(pred));
+    st = await call("setSettings", { patch: { statsUrl: "https://panel.example.com/me" } });
+    check("statistics URL saved", st.settings.statsUrl === "https://panel.example.com/me");
+    const bad = await call("setSettings", { patch: { statsUrl: "javascript:alert(1)" } }).then(() => "accepted", () => "rejected");
+    check("non-http statistics URL rejected", bad === "rejected", bad);
+
     // 4. Password changed on the server → our stored one is rejected → auth error.
     const list = (await call("getState")).profiles;
     PASS = "rotated";

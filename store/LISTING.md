@@ -45,6 +45,12 @@ TrustTunnel servers require HTTP Basic proxy authentication. Chrome cannot prese
 **Host permission (https://connectivitycheck.gstatic.com/*)**
 The only host the extension has access to. Every 30 seconds while the VPN is on it requests https://connectivitycheck.gstatic.com/generate_204 through the user's server to check that the tunnel works, measure latency and authenticate to the proxy. No access to any website; no content scripts.
 
+**contextMenus**
+Adds two items to the right-click menu of the extension's own toolbar icon: "VPN on" (checkbox) and "Server" (list of the user's servers), so the VPN can be switched without opening the popup. No items are added to web pages.
+
+**Optional host permission (https://proxycheck.io/*)**
+Not granted at install. Requested only if the user clicks "Show country, provider and address type" in the popup after "Check IP": the extension then asks proxycheck.io about the two IP addresses it has just shown (with the VPN / without it) to display their country, provider and type. Off by default.
+
 **storage**
 Stores the user's server profiles (hostname, port, username, password, optional certificate) and settings (routing mode, site lists, kill switch) locally in chrome.storage.local, and the current connection status in chrome.storage.session.
 
@@ -52,7 +58,7 @@ Stores the user's server profiles (hostname, port, username, password, optional 
 Runs a connectivity check through the tunnel every 30 seconds while the VPN is on, to show the connection status and latency.
 
 **privacy**
-Sets chrome.privacy.network.webRTCIPHandlingPolicy to "disable_non_proxied_udp" while the VPN is on (optional setting), so WebRTC cannot leak the user's real IP address around the VPN. Restored when the VPN is turned off.
+Sets chrome.privacy.network.webRTCIPHandlingPolicy to "disable_non_proxied_udp" while the VPN is on (optional setting), so WebRTC cannot leak the user's real IP address around the VPN, and chrome.privacy.network.networkPredictionEnabled to false, so DNS prefetch and preconnect do not reveal site names outside the tunnel. Both are restored when the VPN is turned off.
 
 **tabs**
 Reads the URL of the active tab when the popup is open, to show whether the current site goes through the VPN and offer one-click "add this site to the exclusion/inclusion list".
@@ -77,3 +83,15 @@ Certifications — tick all three:
 ### Privacy policy URL
 
 https://github.com/BorisGB2001/TrustTunnel-Browser-Client/blob/main/PRIVACY.md
+
+## Updating to 1.2.0 (2026-11-23)
+
+New in the package: permission `contextMenus`, optional host permission `https://proxycheck.io/*`,
+keyboard command. In the dashboard:
+
+1. Package → Upload new package → `dist/trusttunnel-chrome-1.2.0.zip`.
+2. Privacy practices → fill the new justification field **contextMenus** (text above); update the
+   **privacy** text; if a host-permission field shows proxycheck.io, use the optional-permission text above.
+3. Store listing → replace the descriptions with `store/description-en.txt` / `description-ru.txt`
+   and the screenshots with `store/screenshots/*`.
+4. Submit for review.
